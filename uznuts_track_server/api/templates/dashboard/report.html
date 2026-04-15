@@ -1,0 +1,125 @@
+{% extends "dashboard/base.html" %}
+{% block title %}Отчет{% endblock %}
+{% block content %}
+  <div class="grid">
+    <div class="card">
+      <h2>Отчет по зоне</h2>
+      <form method="post">
+        {% csrf_token %}
+        <div class="field">
+          <label for="id_employee">Сотрудник</label>
+          {{ form.employee }}
+        </div>
+        <div class="field">
+          <label for="id_zone">Зона</label>
+          {{ form.zone }}
+        </div>
+        <div class="field">
+          <label for="id_start_datetime">Начало периода</label>
+          {{ form.start_datetime }}
+        </div>
+        <div class="field">
+          <label for="id_end_datetime">Конец периода</label>
+          {{ form.end_datetime }}
+        </div>
+        <div class="actions">
+          <button class="btn" type="submit">Построить отчет</button>
+        </div>
+      </form>
+    </div>
+
+    {% if summary %}
+      <div class="card">
+        <h3>Результаты</h3>
+        <table>
+          <tr>
+            <th>Учтенное время</th>
+            <td>{{ summary.accounted_hours|floatformat:2 }} ч</td>
+          </tr>
+          <tr>
+            <th>В зоне</th>
+            <td>{{ summary.in_zone_hours|floatformat:2 }} ч</td>
+          </tr>
+          <tr>
+            <th>Вне зоны</th>
+            <td>{{ summary.out_zone_hours|floatformat:2 }} ч</td>
+          </tr>
+          <tr>
+            <th>% времени в зоне</th>
+            <td>{{ summary.in_zone_percent|floatformat:2 }}%</td>
+          </tr>
+        </table>
+        <p class="muted">
+          Учтенное время считается по интервалам между последовательными точками.
+        </p>
+      </div>
+    {% endif %}
+
+    {% if route_in or route_out %}
+      <div class="card">
+        <h3>Маршрут перемещения</h3>
+        <div id="report-map"></div>
+        <p class="muted">Слои: в зоне / вне зоны.</p>
+      </div>
+    {% endif %}
+  </div>
+{% endblock %}
+{% block scripts %}
+  {% if route_in or route_out %}
+    <script>
+      (function initRouteMap() {
+        if (!window.L) {
+          return;
+        }
+        const map = L.map("report-map").setView([41.3111, 69.2797], 11);
+        L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
+          maxZoom: 19,
+          attribution: '&copy; OpenStreetMap contributors'
+        }).addTo(map);
+
+        const inSegments = {{ route_in|default:"[]"|safe }};
+        const outSegments = {{ route_out|default:"[]"|safe }};
+        const allPoints = {{ route_points|default:"[]"|safe }};
+
+        const inLayer = L.featureGroup();
+        const outLayer = L.featureGroup();
+
+        inSegments.forEach(segment => {
+          if (Array.isArray(segment) && segment.length >= 2) {
+            L.polyline(segment, { color: "#2ecc71", weight: 4, opacity: 0.9 }).addTo(inLayer);
+          }
+        });
+
+        outSegments.forEach(segment => {
+          if (Array.isArray(segment) && segment.length >= 2) {
+            L.polyline(segment, { color: "#e74c3c", weight: 4, opacity: 0.9 }).addTo(outLayer);
+          }
+        });
+
+        if (inSegments.length) {
+          inLayer.addTo(map);
+        }
+        if (outSegments.length) {
+          outLayer.addTo(map);
+        }
+
+        const overlays = {
+          "В зоне": inLayer,
+          "Вне зоны": outLayer
+        };
+        L.control.layers(null, overlays, { collapsed: false }).addTo(map);
+
+        if (allPoints.length) {
+          const bounds = allPoints
+            .filter(p => Array.isArray(p) && p.length >= 2)
+            .map(p => [p[0], p[1]]);
+          if (bounds.length >= 2) {
+            map.fitBounds(bounds, { padding: [20, 20] });
+          } else if (bounds.length === 1) {
+            map.setView(bounds[0], 14);
+          }
+        }
+      })();
+    </script>
+  {% endif %}
+{% endblock %}
