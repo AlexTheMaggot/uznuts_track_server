@@ -1,0 +1,23 @@
+{% extends "dashboard/base.html" %}
+{% block title %}Должность{% endblock %}
+{% block content %}
+  <div class="grid">
+    <div class="card">
+      <h2>{% if position %}Редактирование должности{% else %}Новая должность{% endif %}</h2>
+      <form method="post">
+        {% csrf_token %}
+        {% if form.errors %}
+          <p class="muted">Проверьте поля формы.</p>
+        {% endif %}
+        <div class="field">
+          <label for="id_name">Название</label>
+          {{ form.name }}
+        </div>
+        <div class="actions">
+          <button class="btn" type="submit">Сохранить</button>
+          <a class="btn secondary" href="/dashboard/positions/">Назад</a>
+        </div>
+      </form>
+    </div>
+  </div>
+{% endblock %}
