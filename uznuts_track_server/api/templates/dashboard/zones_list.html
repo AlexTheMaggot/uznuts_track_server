@@ -1,0 +1,32 @@
+{% extends "dashboard/base.html" %}
+{% block title %}Зоны{% endblock %}
+{% block content %}
+  <div class="card grid">
+    <div class="actions">
+      <h2>Зоны</h2>
+      <a class="btn" href="/dashboard/zones/new/">Новая зона</a>
+    </div>
+    {% if zones %}
+      <table>
+        <thead>
+          <tr>
+            <th>Название</th>
+            <th>Создано</th>
+            <th></th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for zone in zones %}
+            <tr>
+              <td>{{ zone.name }}</td>
+              <td>{{ zone.created_at }}</td>
+              <td><a class="btn secondary" href="/dashboard/zones/{{ zone.id }}/">Редактировать</a></td>
+            </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    {% else %}
+      <p class="muted">Пока нет зон. Создайте первую.</p>
+    {% endif %}
+  </div>
+{% endblock %}
