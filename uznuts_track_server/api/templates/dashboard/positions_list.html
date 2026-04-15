@@ -1,0 +1,33 @@
+{% extends "dashboard/base.html" %}
+{% block title %}Должности{% endblock %}
+{% block content %}
+  <div class="card grid">
+    <div class="actions">
+      <h2>Должности</h2>
+      <a class="btn" href="/dashboard/positions/new/">Новая должность</a>
+    </div>
+    {% if positions %}
+      <table>
+        <thead>
+          <tr>
+            <th>Название</th>
+            <th></th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for position in positions %}
+            <tr>
+              <td>{{ position.name }}</td>
+              <td class="actions">
+                <a class="btn secondary" href="/dashboard/positions/{{ position.id }}/">Редактировать</a>
+                <a class="btn secondary" href="/dashboard/positions/{{ position.id }}/delete/">Удалить</a>
+              </td>
+            </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    {% else %}
+      <p class="muted">Пока нет должностей. Создайте первую.</p>
+    {% endif %}
+  </div>
+{% endblock %}
