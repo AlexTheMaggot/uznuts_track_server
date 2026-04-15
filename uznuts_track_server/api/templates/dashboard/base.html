@@ -1,0 +1,173 @@
+<!DOCTYPE html>
+<html lang="ru">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>{% block title %}Dashboard{% endblock %}</title>
+    <link
+      rel="stylesheet"
+      href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
+      crossorigin=""
+      onerror="this.onerror=null;this.href='https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.css';"
+    />
+    <link
+      rel="stylesheet"
+      href="https://unpkg.com/leaflet-draw@1.0.4/dist/leaflet.draw.css"
+      crossorigin=""
+      onerror="this.onerror=null;this.href='https://cdnjs.cloudflare.com/ajax/libs/leaflet.draw/1.0.4/leaflet.draw.css';"
+    />
+    <style>
+      :root {
+        --bg: #f6f7fb;
+        --panel: #ffffff;
+        --primary: #2f6fed;
+        --text: #1a1d26;
+        --muted: #60657a;
+        --border: #e4e7f0;
+      }
+      * { box-sizing: border-box; }
+      body {
+        margin: 0;
+        font-family: "Segoe UI", Tahoma, Geneva, Verdana, sans-serif;
+        background: var(--bg);
+        color: var(--text);
+      }
+      header {
+        background: var(--panel);
+        border-bottom: 1px solid var(--border);
+        padding: 16px 24px;
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+      }
+      header nav a {
+        margin-right: 16px;
+        text-decoration: none;
+        color: var(--text);
+        font-weight: 600;
+      }
+      header nav a.active {
+        color: var(--primary);
+      }
+      .container {
+        max-width: 1100px;
+        margin: 24px auto;
+        padding: 0 16px 48px;
+      }
+      .card {
+        background: var(--panel);
+        border: 1px solid var(--border);
+        border-radius: 12px;
+        padding: 20px;
+        box-shadow: 0 8px 24px rgba(21, 28, 64, 0.06);
+      }
+      .grid {
+        display: grid;
+        gap: 16px;
+      }
+      .actions {
+        display: flex;
+        gap: 12px;
+        align-items: center;
+      }
+      .btn {
+        background: var(--primary);
+        color: #fff;
+        border: none;
+        padding: 10px 16px;
+        border-radius: 8px;
+        cursor: pointer;
+        font-weight: 600;
+        text-decoration: none;
+        display: inline-block;
+      }
+      .btn.secondary {
+        background: #eef1fb;
+        color: var(--primary);
+      }
+      .field {
+        margin-bottom: 12px;
+      }
+      label {
+        display: block;
+        margin-bottom: 6px;
+        color: var(--muted);
+      }
+      input, select {
+        width: 100%;
+        padding: 10px 12px;
+        border: 1px solid var(--border);
+        border-radius: 8px;
+        font-size: 14px;
+      }
+      .muted {
+        color: var(--muted);
+        font-size: 14px;
+      }
+      #map {
+        height: 420px;
+        border-radius: 12px;
+        border: 1px solid var(--border);
+      }
+      #report-map {
+        height: 420px;
+        border-radius: 12px;
+        border: 1px solid var(--border);
+      }
+      table {
+        width: 100%;
+        border-collapse: collapse;
+      }
+      th, td {
+        text-align: left;
+        padding: 10px;
+        border-bottom: 1px solid var(--border);
+      }
+      th {
+        color: var(--muted);
+      }
+    </style>
+    {% block head %}{% endblock %}
+  </head>
+  <body>
+    <header>
+      <div><strong>UzNuts Track</strong> Dashboard</div>
+      <nav>
+        <a href="/dashboard/zones/" class="{% if request.path == '/dashboard/zones/' %}active{% endif %}">Зоны</a>
+        <a href="/dashboard/positions/" class="{% if request.path == '/dashboard/positions/' %}active{% endif %}">Должности</a>
+        <a href="/dashboard/report/" class="{% if request.path == '/dashboard/report/' %}active{% endif %}">Отчет</a>
+        <a href="/dashboard/logout/">Выйти</a>
+      </nav>
+    </header>
+    <main class="container">
+      {% block content %}{% endblock %}
+    </main>
+    <script
+      src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"
+      crossorigin=""
+      onerror="window.__leafletFailed = true;"
+    ></script>
+    <script>
+      if (window.__leafletFailed && !window.L) {
+        const fallback = document.createElement("script");
+        fallback.src = "https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.js";
+        fallback.crossOrigin = "";
+        document.head.appendChild(fallback);
+      }
+    </script>
+    <script
+      src="https://unpkg.com/leaflet-draw@1.0.4/dist/leaflet.draw.js"
+      crossorigin=""
+      onerror="window.__leafletDrawFailed = true;"
+    ></script>
+    <script>
+      if (window.__leafletDrawFailed) {
+        const fallback = document.createElement("script");
+        fallback.src = "https://cdnjs.cloudflare.com/ajax/libs/leaflet.draw/1.0.4/leaflet.draw.js";
+        fallback.crossOrigin = "";
+        document.head.appendChild(fallback);
+      }
+    </script>
+    {% block scripts %}{% endblock %}
+  </body>
+</html>
