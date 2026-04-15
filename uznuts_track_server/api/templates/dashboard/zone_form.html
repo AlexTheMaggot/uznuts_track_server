@@ -1,0 +1,107 @@
+{% extends "dashboard/base.html" %}
+{% block title %}Зона{% endblock %}
+{% block content %}
+  <div class="grid">
+    <div class="card">
+      <h2>{% if zone %}Редактирование зоны{% else %}Новая зона{% endif %}</h2>
+      <form method="post" id="zone-form">
+        {% csrf_token %}
+        {% if form.errors %}
+          <p class="muted">Проверьте поля формы.</p>
+        {% endif %}
+        <div class="field">
+          <label for="id_name">Название</label>
+          {{ form.name }}
+        </div>
+        {{ form.polygon }}
+        <div class="field">
+          <label>Полигон на карте</label>
+          <div id="map"></div>
+          <p id="draw-status" class="muted"></p>
+          <p class="muted">Нарисуйте полигон. Сохраняется один контур.</p>
+        </div>
+        <div class="actions">
+          <button class="btn" type="submit">Сохранить</button>
+          <a class="btn secondary" href="/dashboard/zones/">Назад</a>
+        </div>
+      </form>
+    </div>
+  </div>
+{% endblock %}
+{% block scripts %}
+  <script>
+    (function initZoneMap() {
+      const status = document.getElementById("draw-status");
+      if (!window.L) {
+        if (status) {
+          status.textContent = "Карта не загрузилась. Проверьте доступ к CDN (unpkg/cdnjs).";
+        }
+        return;
+      }
+
+      const map = L.map("map").setView([41.3111, 69.2797], 12);
+      L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
+        maxZoom: 19,
+        attribution: '&copy; OpenStreetMap contributors'
+      }).addTo(map);
+
+      const drawnItems = new L.FeatureGroup();
+      map.addLayer(drawnItems);
+
+      if (!L.Control || !L.Control.Draw) {
+        if (status) {
+          status.textContent = "Инструменты рисования не загрузились. Проверьте доступ к Leaflet.draw.";
+        }
+        return;
+      }
+
+      const drawControl = new L.Control.Draw({
+        draw: {
+          polygon: true,
+          marker: false,
+          polyline: false,
+          rectangle: false,
+          circle: false,
+          circlemarker: false
+        },
+        edit: {
+          featureGroup: drawnItems
+        }
+      });
+      map.addControl(drawControl);
+
+      const polygonInput = document.getElementById("id_polygon");
+      function updatePolygonInput(layer) {
+        const latlngs = layer.getLatLngs()[0].map(pt => [pt.lat, pt.lng]);
+        polygonInput.value = JSON.stringify(latlngs);
+      }
+
+      map.on(L.Draw.Event.CREATED, function (event) {
+        drawnItems.clearLayers();
+        const layer = event.layer;
+        drawnItems.addLayer(layer);
+        updatePolygonInput(layer);
+      });
+
+      map.on(L.Draw.Event.EDITED, function (event) {
+        event.layers.eachLayer(function (layer) {
+          updatePolygonInput(layer);
+        });
+      });
+
+      map.on(L.Draw.Event.DELETED, function () {
+        polygonInput.value = "";
+      });
+
+      {% if zone %}
+        const existing = {{ zone.polygon|safe }};
+        if (existing && existing.length) {
+          const poly = L.polygon(existing);
+          drawnItems.addLayer(poly);
+          map.fitBounds(poly.getBounds());
+          polygonInput.value = JSON.stringify(existing);
+        }
+      {% endif %}
+    })();
+  </script>
+{% endblock %}
