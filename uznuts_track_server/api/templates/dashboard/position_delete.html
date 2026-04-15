@@ -1,0 +1,15 @@
+{% extends "dashboard/base.html" %}
+{% block title %}Удаление должности{% endblock %}
+{% block content %}
+  <div class="card">
+    <h2>Удалить должность</h2>
+    <p>Удалить должность "{{ position.name }}"?</p>
+    <form method="post">
+      {% csrf_token %}
+      <div class="actions">
+        <button class="btn" type="submit">Удалить</button>
+        <a class="btn secondary" href="/dashboard/positions/">Отмена</a>
+      </div>
+    </form>
+  </div>
+{% endblock %}
