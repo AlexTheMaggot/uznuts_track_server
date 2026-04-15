@@ -1,0 +1,44 @@
+name: Uznuts Track Server CI/CD
+
+on:
+  push:
+    branches: [ "main" ]
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    env:
+      DJANGO_SECRET_KEY: ${{ secrets.DJANGO_SECRET_KEY }}
+      DJANGO_DEBUG: "False"
+      DJANGO_ALLOWED_HOSTS: "track.uznuts.uz"
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: CI check
+        run: |
+          pip install -r requirements.txt
+          cd uznuts_track_server
+          python manage.py check
+
+      - name: Deploy
+        uses: appleboy/ssh-action@v1.0.0
+        with:
+          host: ${{ secrets.SSH_HOST }}
+          username: ${{ secrets.SSH_USER }}
+          key: ${{ secrets.SSH_PRIVATE_KEY }}
+          script: |
+            cd /home/uznuts_track_server
+            git fetch
+            git pull
+            source venv/bin/activate
+            pip install -r requirements.txt
+            cd uznuts_track_server
+            python manage.py migrate
+            sudo systemctl restart nginx
+            sudo systemctl restart track.uznuts.uz
