@@ -1,0 +1,2 @@
+django==4.2.23
+django-environ==0.13.0
