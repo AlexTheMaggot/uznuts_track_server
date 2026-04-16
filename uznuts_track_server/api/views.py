@@ -276,4 +276,6 @@ def report_view(request):
         },
     )
 
-# Create your views here.
+
+def index(request):
+    return redirect('/dashboard/')
