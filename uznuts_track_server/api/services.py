@@ -1,6 +1,6 @@
 import json
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import date, datetime, time, timedelta, timezone
 from typing import Optional
 
 from .models import Employee, LocationReport, Zone
@@ -45,13 +45,41 @@ class ReportResult:
         return (self.in_zone_seconds / self.accounted_seconds) * 100
 
 
-def build_zone_report(zone: Zone, start_dt: datetime, end_dt: datetime, employee: Optional[Employee] = None) -> ReportResult:
+@dataclass
+class DailyReportResult:
+    date: date
+    accounted_seconds: float
+    in_zone_seconds: float
+    out_zone_seconds: float
+
+    @property
+    def accounted_hours(self) -> float:
+        return self.accounted_seconds / 3600
+
+    @property
+    def in_zone_hours(self) -> float:
+        return self.in_zone_seconds / 3600
+
+    @property
+    def out_zone_hours(self) -> float:
+        return self.out_zone_seconds / 3600
+
+    @property
+    def in_zone_percent(self) -> float:
+        if self.accounted_seconds <= 0:
+            return 0.0
+        return (self.in_zone_seconds / self.accounted_seconds) * 100
+
+
+def _build_accounted_intervals(zone: Zone, start_dt: datetime, end_dt: datetime, employee: Optional[Employee] = None):
     start_dt = start_dt.astimezone(timezone.utc)
     end_dt = end_dt.astimezone(timezone.utc)
+    if end_dt <= start_dt:
+        return []
 
     points = _load_polygon(zone)
     if not points:
-        return ReportResult(0.0, 0.0, 0.0)
+        return []
 
     qs = LocationReport.objects.filter(recorded_at__gte=start_dt, recorded_at__lte=end_dt)
     if employee is not None:
@@ -59,45 +87,107 @@ def build_zone_report(zone: Zone, start_dt: datetime, end_dt: datetime, employee
     reports = list(qs.order_by("recorded_at").values("latitude", "longitude", "recorded_at"))
 
     if not reports:
-        return ReportResult(0.0, 0.0, 0.0)
+        return []
 
-    accounted = 0.0
-    in_zone = 0.0
-
-    def add_interval(seconds: float, in_zone_flag: bool):
-        nonlocal accounted, in_zone
-        if seconds <= 0:
-            return
-        accounted += seconds
-        if in_zone_flag:
-            in_zone += seconds
+    intervals = []
 
     def is_in_zone(item):
         return _point_in_polygon(item["latitude"], item["longitude"], points)
 
-    # Start gap handling
+    def add_interval(interval_start: datetime, interval_end: datetime, in_zone_flag: bool):
+        clipped_start = max(interval_start, start_dt)
+        clipped_end = min(interval_end, end_dt)
+        if clipped_end > clipped_start:
+            intervals.append((clipped_start, clipped_end, in_zone_flag))
+
     start_gap = (reports[0]["recorded_at"] - start_dt).total_seconds()
     if start_gap > 0:
         accounted_start = start_gap if start_gap <= 600 else 600
-        add_interval(accounted_start, is_in_zone(reports[0]))
+        add_interval(
+            reports[0]["recorded_at"] - timedelta(seconds=accounted_start),
+            reports[0]["recorded_at"],
+            is_in_zone(reports[0]),
+        )
 
-    # Between points
     for current, next_item in zip(reports, reports[1:]):
         interval = (next_item["recorded_at"] - current["recorded_at"]).total_seconds()
         if interval <= 0:
             continue
         if interval > 600:
-            interval = max(interval - 1200, 0.0)
-        add_interval(interval, is_in_zone(current))
+            accounted_interval = max(interval - 1200, 0.0)
+            interval_start = current["recorded_at"] + timedelta(seconds=600)
+            interval_end = interval_start + timedelta(seconds=accounted_interval)
+        else:
+            interval_start = current["recorded_at"]
+            interval_end = next_item["recorded_at"]
+        add_interval(interval_start, interval_end, is_in_zone(current))
 
-    # End gap handling
     end_gap = (end_dt - reports[-1]["recorded_at"]).total_seconds()
     if end_gap > 0:
         accounted_end = end_gap if end_gap <= 600 else 600
-        add_interval(accounted_end, is_in_zone(reports[-1]))
+        add_interval(
+            reports[-1]["recorded_at"],
+            reports[-1]["recorded_at"] + timedelta(seconds=accounted_end),
+            is_in_zone(reports[-1]),
+        )
+
+    return intervals
+
+
+def build_zone_report(zone: Zone, start_dt: datetime, end_dt: datetime, employee: Optional[Employee] = None) -> ReportResult:
+    accounted = 0.0
+    in_zone = 0.0
+
+    for interval_start, interval_end, in_zone_flag in _build_accounted_intervals(zone, start_dt, end_dt, employee=employee):
+        seconds = (interval_end - interval_start).total_seconds()
+        accounted += seconds
+        if in_zone_flag:
+            in_zone += seconds
 
     out_zone = max(accounted - in_zone, 0.0)
     return ReportResult(accounted, in_zone, out_zone)
+
+
+def build_daily_employee_zone_report(
+    zone: Zone,
+    start_dt: datetime,
+    end_dt: datetime,
+    employee: Employee,
+) -> list[DailyReportResult]:
+    start_dt = start_dt.astimezone(timezone.utc)
+    end_dt = end_dt.astimezone(timezone.utc)
+    if end_dt <= start_dt:
+        return []
+
+    totals_by_day = {}
+    current_day = start_dt.date()
+    end_day = end_dt.date()
+    while current_day <= end_day:
+        totals_by_day[current_day] = {"accounted": 0.0, "in_zone": 0.0}
+        current_day += timedelta(days=1)
+
+    intervals = _build_accounted_intervals(zone, start_dt, end_dt, employee=employee)
+    for interval_start, interval_end, in_zone_flag in intervals:
+        current_start = interval_start
+        while current_start < interval_end:
+            next_midnight = datetime.combine(current_start.date() + timedelta(days=1), time.min, tzinfo=timezone.utc)
+            current_end = min(interval_end, next_midnight)
+            seconds = (current_end - current_start).total_seconds()
+            day_totals = totals_by_day[current_start.date()]
+            day_totals["accounted"] += seconds
+            if in_zone_flag:
+                day_totals["in_zone"] += seconds
+            current_start = current_end
+
+    return [
+        DailyReportResult(
+            date=day,
+            accounted_seconds=values["accounted"],
+            in_zone_seconds=values["in_zone"],
+            out_zone_seconds=max(values["accounted"] - values["in_zone"], 0.0),
+        )
+        for day, values in totals_by_day.items()
+    ]
 
 
 def load_route_segments(
@@ -112,7 +202,7 @@ def load_route_segments(
 
     points = _load_polygon(zone)
     if not points:
-        return [], []
+        return [], [], []
 
     qs = LocationReport.objects.filter(recorded_at__gte=start_dt, recorded_at__lte=end_dt)
     if employee is not None:
