@@ -13,6 +13,10 @@ class LocationReport(models.Model):
     def __str__(self) -> str:
         return f"{self.latitude}, {self.longitude} @ {self.timestamp_ms}"
 
+    class Meta:
+        verbose_name = 'Запись о местоположении'
+        verbose_name_plural = 'Записи о местоположении'
+
 
 class Zone(models.Model):
     name = models.CharField(max_length=200)
@@ -32,6 +36,10 @@ class Employee(models.Model):
     def __str__(self) -> str:
         return f"{self.last_name} {self.first_name} ({self.position.name})"
 
+    class Meta:
+        verbose_name = 'Работник'
+        verbose_name_plural = 'Работники'
+
 
 class Position(models.Model):
     name = models.CharField(max_length=200)
@@ -39,4 +47,6 @@ class Position(models.Model):
     def __str__(self) -> str:
         return self.name
 
-# Create your models here.
+    class Meta:
+        verbose_name = "Должность"
+        verbose_name_plural = "Должности"
