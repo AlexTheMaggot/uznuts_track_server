@@ -85,6 +85,11 @@
         background: #eef1fb;
         color: var(--primary);
       }
+      .btn.map-active {
+        background: #dce6ff;
+        color: var(--primary);
+        box-shadow: inset 0 0 0 2px rgba(47, 111, 237, 0.18);
+      }
       .field {
         margin-bottom: 12px;
       }
@@ -104,15 +109,42 @@
         color: var(--muted);
         font-size: 14px;
       }
-      #map {
-        height: 420px;
-        border-radius: 12px;
-        border: 1px solid var(--border);
+      .map-toolbar {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 10px;
+        align-items: center;
+        justify-content: space-between;
+        margin-bottom: 10px;
       }
-      #report-map {
+      .map-toolbar-group {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 10px;
+        align-items: center;
+      }
+      .map-shell {
+        background: var(--panel);
+        max-width: 100%;
+        overflow: hidden;
+      }
+      .map-shell:fullscreen {
+        padding: 16px;
+        background: var(--panel);
+      }
+      .map-shell:fullscreen .map-canvas {
+        height: calc(100vh - 92px);
+      }
+      .map-canvas {
         height: 420px;
+        width: 100%;
+        max-width: 100%;
         border-radius: 12px;
         border: 1px solid var(--border);
+        overflow: hidden;
+      }
+      .map-canvas.hidden {
+        display: none;
       }
       table {
         width: 100%;
@@ -168,6 +200,13 @@
         document.head.appendChild(fallback);
       }
     </script>
+    {% if yandex_api_key %}
+      <script
+        src="https://api-maps.yandex.ru/2.1/?apikey={{ yandex_api_key|urlencode }}&lang=ru_RU"
+        type="text/javascript"
+        onerror="window.__yandexMapsFailed = true;"
+      ></script>
+    {% endif %}
     {% block scripts %}{% endblock %}
   </body>
 </html>
