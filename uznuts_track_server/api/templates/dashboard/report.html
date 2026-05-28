@@ -30,7 +30,7 @@
 
     {% if summary %}
       <div class="card">
-        <h3>Результаты</h3>
+        <h3>Итог за период</h3>
         <table>
           <tr>
             <th>Учтенное время</th>
@@ -55,11 +55,50 @@
       </div>
     {% endif %}
 
+    {% if daily_report %}
+      <div class="card">
+        <h3>Отчет по дням</h3>
+        <table>
+          <thead>
+            <tr>
+              <th>Дата</th>
+              <th>Зафиксировано</th>
+              <th>В зоне</th>
+              <th>Вне зоны</th>
+              <th>% в зоне</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for day in daily_report %}
+              <tr>
+                <td>{{ day.date|date:"d.m.Y" }}</td>
+                <td>{{ day.accounted_hours|floatformat:2 }} ч</td>
+                <td>{{ day.in_zone_hours|floatformat:2 }} ч</td>
+                <td>{{ day.out_zone_hours|floatformat:2 }} ч</td>
+                <td>{{ day.in_zone_percent|floatformat:2 }}%</td>
+              </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    {% endif %}
+
     {% if route_in or route_out %}
       <div class="card">
         <h3>Маршрут перемещения</h3>
-        <div id="report-map"></div>
+        <div class="map-shell" id="report-map-shell">
+          <div class="map-toolbar">
+            <div class="map-toolbar-group">
+              <button class="btn secondary map-active" type="button" data-map-provider="osm">OpenStreetMap</button>
+              <button class="btn secondary" type="button" data-map-provider="yandex">Яндекс</button>
+            </div>
+            <button class="btn secondary" type="button" id="toggle-report-fullscreen">На весь экран</button>
+          </div>
+          <div id="report-map-osm" class="map-canvas"></div>
+          <div id="report-map-yandex" class="map-canvas hidden"></div>
+        </div>
         <p class="muted">Слои: в зоне / вне зоны.</p>
+        <p id="report-map-status" class="muted"></p>
       </div>
     {% endif %}
   </div>
@@ -68,57 +107,235 @@
   {% if route_in or route_out %}
     <script>
       (function initRouteMap() {
-        if (!window.L) {
-          return;
-        }
-        const map = L.map("report-map").setView([41.3111, 69.2797], 11);
-        L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
-          maxZoom: 19,
-          attribution: '&copy; OpenStreetMap contributors'
-        }).addTo(map);
-
+        const status = document.getElementById("report-map-status");
+        const mapShell = document.getElementById("report-map-shell");
+        const osmContainer = document.getElementById("report-map-osm");
+        const yandexContainer = document.getElementById("report-map-yandex");
+        const fullscreenButton = document.getElementById("toggle-report-fullscreen");
+        const providerButtons = document.querySelectorAll("[data-map-provider]");
+        const defaultCenter = [41.3111, 69.2797];
         const inSegments = {{ route_in|default:"[]"|safe }};
         const outSegments = {{ route_out|default:"[]"|safe }};
         const allPoints = {{ route_points|default:"[]"|safe }};
+        let activeProvider = "osm";
+        let leafletMap = null;
+        let yandexMap = null;
 
-        const inLayer = L.featureGroup();
-        const outLayer = L.featureGroup();
+        function setStatus(message) {
+          if (status) {
+            status.textContent = message || "";
+          }
+        }
 
-        inSegments.forEach(segment => {
-          if (Array.isArray(segment) && segment.length >= 2) {
-            L.polyline(segment, { color: "#2ecc71", weight: 4, opacity: 0.9 }).addTo(inLayer);
+        function getBounds(points) {
+          const validPoints = points.filter(point => Array.isArray(point) && point.length >= 2);
+          if (!validPoints.length) {
+            return null;
+          }
+          let minLat = validPoints[0][0];
+          let maxLat = validPoints[0][0];
+          let minLng = validPoints[0][1];
+          let maxLng = validPoints[0][1];
+          validPoints.forEach(function (point) {
+            minLat = Math.min(minLat, point[0]);
+            maxLat = Math.max(maxLat, point[0]);
+            minLng = Math.min(minLng, point[1]);
+            maxLng = Math.max(maxLng, point[1]);
+          });
+          return [[minLat, minLng], [maxLat, maxLng]];
+        }
+
+        function initLeaflet() {
+          if (leafletMap) {
+            return;
+          }
+          if (!window.L) {
+            setStatus("OpenStreetMap не загрузился. Проверьте доступ к CDN (unpkg/cdnjs).");
+            return;
+          }
+
+          leafletMap = L.map("report-map-osm").setView(defaultCenter, 11);
+          L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
+            maxZoom: 19,
+            attribution: '&copy; OpenStreetMap contributors'
+          }).addTo(leafletMap);
+
+          const inLayer = L.featureGroup();
+          const outLayer = L.featureGroup();
+
+          inSegments.forEach(segment => {
+            if (Array.isArray(segment) && segment.length >= 2) {
+              L.polyline(segment, { color: "#2ecc71", weight: 4, opacity: 0.9 }).addTo(inLayer);
+            }
+          });
+
+          outSegments.forEach(segment => {
+            if (Array.isArray(segment) && segment.length >= 2) {
+              L.polyline(segment, { color: "#e74c3c", weight: 4, opacity: 0.9 }).addTo(outLayer);
+            }
+          });
+
+          if (inSegments.length) {
+            inLayer.addTo(leafletMap);
+          }
+          if (outSegments.length) {
+            outLayer.addTo(leafletMap);
+          }
+
+          const overlays = {
+            "В зоне": inLayer,
+            "Вне зоны": outLayer
+          };
+          L.control.layers(null, overlays, { collapsed: false }).addTo(leafletMap);
+
+          if (allPoints.length) {
+            const bounds = allPoints
+              .filter(p => Array.isArray(p) && p.length >= 2)
+              .map(p => [p[0], p[1]]);
+            if (bounds.length >= 2) {
+              leafletMap.fitBounds(bounds, { padding: [20, 20] });
+            } else if (bounds.length === 1) {
+              leafletMap.setView(bounds[0], 14);
+            }
+          }
+        }
+
+        function initYandex() {
+          if (yandexMap) {
+            return;
+          }
+          if (window.__yandexMapsFailed || !window.ymaps) {
+            setStatus("Яндекс.Карты не загрузились. Проверьте YANDEX_API_KEY и доступ к api-maps.yandex.ru.");
+            return;
+          }
+
+          ymaps.ready(function () {
+            if (yandexMap) {
+              return;
+            }
+            yandexMap = new ymaps.Map("report-map-yandex", {
+              center: defaultCenter,
+              zoom: 11,
+              controls: ["zoomControl", "typeSelector"]
+            });
+
+            inSegments.forEach(function (segment) {
+              if (Array.isArray(segment) && segment.length >= 2) {
+                yandexMap.geoObjects.add(new ymaps.Polyline(segment, {}, {
+                  strokeColor: "#2ecc71",
+                  strokeWidth: 4,
+                  opacity: 0.9
+                }));
+              }
+            });
+
+            outSegments.forEach(function (segment) {
+              if (Array.isArray(segment) && segment.length >= 2) {
+                yandexMap.geoObjects.add(new ymaps.Polyline(segment, {}, {
+                  strokeColor: "#e74c3c",
+                  strokeWidth: 4,
+                  opacity: 0.9
+                }));
+              }
+            });
+
+            const bounds = getBounds(allPoints);
+            if (bounds && allPoints.length >= 2) {
+              yandexMap.setBounds(bounds, { checkZoomRange: true, zoomMargin: 24 });
+            } else if (bounds) {
+              yandexMap.setCenter(bounds[0], 14);
+            }
+          });
+        }
+
+        function resetYandexMapSize() {
+          yandexContainer.style.width = "100%";
+          yandexContainer.style.maxWidth = "100%";
+          yandexContainer.style.minWidth = "0";
+          yandexContainer.style.overflow = "hidden";
+          if (yandexMap) {
+            const mapElement = yandexMap.container.getElement();
+            mapElement.style.width = "100%";
+            mapElement.style.maxWidth = "100%";
+            mapElement.style.minWidth = "0";
+            mapElement.style.overflow = "hidden";
+          }
+        }
+
+        function rebuildYandexMap() {
+          if (!yandexMap) {
+            initYandex();
+            return;
+          }
+          yandexMap.destroy();
+          yandexMap = null;
+          yandexContainer.innerHTML = "";
+          resetYandexMapSize();
+          setTimeout(function () {
+            initYandex();
+          }, 50);
+        }
+
+        function refreshActiveMap() {
+          const delays = [50, 250, 600];
+          if (activeProvider === "osm" && leafletMap) {
+            delays.forEach(function (delay) {
+              setTimeout(function () {
+                leafletMap.invalidateSize();
+              }, delay);
+            });
+          }
+          if (activeProvider === "yandex" && yandexMap) {
+            resetYandexMapSize();
+            delays.forEach(function (delay) {
+              setTimeout(function () {
+                resetYandexMapSize();
+                yandexMap.container.fitToViewport();
+              }, delay);
+            });
+          }
+        }
+
+        function switchProvider(provider) {
+          activeProvider = provider;
+          osmContainer.classList.toggle("hidden", provider !== "osm");
+          yandexContainer.classList.toggle("hidden", provider !== "yandex");
+          providerButtons.forEach(function (button) {
+            button.classList.toggle("map-active", button.dataset.mapProvider === provider);
+          });
+          if (provider === "yandex") {
+            initYandex();
+          } else {
+            initLeaflet();
+          }
+          refreshActiveMap();
+        }
+
+        providerButtons.forEach(function (button) {
+          button.addEventListener("click", function () {
+            switchProvider(button.dataset.mapProvider);
+          });
+        });
+
+        fullscreenButton.addEventListener("click", function () {
+          if (document.fullscreenElement) {
+            document.exitFullscreen();
+          } else {
+            mapShell.requestFullscreen();
           }
         });
 
-        outSegments.forEach(segment => {
-          if (Array.isArray(segment) && segment.length >= 2) {
-            L.polyline(segment, { color: "#e74c3c", weight: 4, opacity: 0.9 }).addTo(outLayer);
+        document.addEventListener("fullscreenchange", function () {
+          const isFullscreen = Boolean(document.fullscreenElement);
+          fullscreenButton.textContent = isFullscreen ? "Свернуть карту" : "На весь экран";
+          if (!isFullscreen && activeProvider === "yandex") {
+            rebuildYandexMap();
+          } else {
+            refreshActiveMap();
           }
         });
 
-        if (inSegments.length) {
-          inLayer.addTo(map);
-        }
-        if (outSegments.length) {
-          outLayer.addTo(map);
-        }
-
-        const overlays = {
-          "В зоне": inLayer,
-          "Вне зоны": outLayer
-        };
-        L.control.layers(null, overlays, { collapsed: false }).addTo(map);
-
-        if (allPoints.length) {
-          const bounds = allPoints
-            .filter(p => Array.isArray(p) && p.length >= 2)
-            .map(p => [p[0], p[1]]);
-          if (bounds.length >= 2) {
-            map.fitBounds(bounds, { padding: [20, 20] });
-          } else if (bounds.length === 1) {
-            map.setView(bounds[0], 14);
-          }
-        }
+        initLeaflet();
       })();
     </script>
   {% endif %}
