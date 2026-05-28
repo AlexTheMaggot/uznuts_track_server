@@ -1,6 +1,7 @@
 import json
 
 from django.http import JsonResponse
+from django.contrib.auth import logout
 from django.contrib.auth.decorators import login_required
 from django.contrib.auth.views import LoginView, LogoutView
 from django.shortcuts import get_object_or_404, redirect, render
@@ -157,7 +158,11 @@ class DashboardLoginView(LoginView):
 
 
 class DashboardLogoutView(LogoutView):
-    pass
+    http_method_names = ["get", "post", "options"]
+
+    def get(self, request, *args, **kwargs):
+        logout(request)
+        return redirect("dashboard_login")
 
 
 @login_required
