@@ -1,6 +1,6 @@
 from django.contrib import admin
 
-from .models import LocationReport, Employee
+from .models import LocationReport, Employee, Position
 
 
 @admin.register(LocationReport)
@@ -14,3 +14,8 @@ class EmployeeAdmin(admin.ModelAdmin):
     list_display = ("id", "last_name", "first_name", "position", "created_at")
     list_filter = ("created_at",)
     search_fields = ("last_name", "first_name", "position")
+
+
+@admin.register(Position)
+class PositionAdmin(admin.ModelAdmin):
+    list_display = ("name", )
