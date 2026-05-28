@@ -16,7 +16,20 @@
         {{ form.polygon }}
         <div class="field">
           <label>Полигон на карте</label>
-          <div id="map"></div>
+          <div class="map-shell" id="zone-map-shell">
+            <div class="map-toolbar">
+              <div class="map-toolbar-group">
+                <button class="btn secondary map-active" type="button" data-map-provider="osm">OpenStreetMap</button>
+                <button class="btn secondary" type="button" data-map-provider="yandex">Яндекс</button>
+              </div>
+              <div class="map-toolbar-group">
+                <button class="btn secondary" type="button" id="clear-polygon">Очистить полигон</button>
+                <button class="btn secondary" type="button" id="toggle-zone-fullscreen">На весь экран</button>
+              </div>
+            </div>
+            <div id="map-osm" class="map-canvas"></div>
+            <div id="map-yandex" class="map-canvas hidden"></div>
+          </div>
           <p id="draw-status" class="muted"></p>
           <p class="muted">Нарисуйте полигон. Сохраняется один контур.</p>
         </div>
@@ -32,76 +45,245 @@
   <script>
     (function initZoneMap() {
       const status = document.getElementById("draw-status");
-      if (!window.L) {
-        if (status) {
-          status.textContent = "Карта не загрузилась. Проверьте доступ к CDN (unpkg/cdnjs).";
-        }
-        return;
-      }
-
-      const map = L.map("map").setView([41.3111, 69.2797], 12);
-      L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
-        maxZoom: 19,
-        attribution: '&copy; OpenStreetMap contributors'
-      }).addTo(map);
-
-      const drawnItems = new L.FeatureGroup();
-      map.addLayer(drawnItems);
-
-      if (!L.Control || !L.Control.Draw) {
-        if (status) {
-          status.textContent = "Инструменты рисования не загрузились. Проверьте доступ к Leaflet.draw.";
-        }
-        return;
-      }
-
-      const drawControl = new L.Control.Draw({
-        draw: {
-          polygon: true,
-          marker: false,
-          polyline: false,
-          rectangle: false,
-          circle: false,
-          circlemarker: false
-        },
-        edit: {
-          featureGroup: drawnItems
-        }
-      });
-      map.addControl(drawControl);
-
       const polygonInput = document.getElementById("id_polygon");
-      function updatePolygonInput(layer) {
-        const latlngs = layer.getLatLngs()[0].map(pt => [pt.lat, pt.lng]);
-        polygonInput.value = JSON.stringify(latlngs);
+      const mapShell = document.getElementById("zone-map-shell");
+      const osmContainer = document.getElementById("map-osm");
+      const yandexContainer = document.getElementById("map-yandex");
+      const fullscreenButton = document.getElementById("toggle-zone-fullscreen");
+      const clearButton = document.getElementById("clear-polygon");
+      const providerButtons = document.querySelectorAll("[data-map-provider]");
+      const defaultCenter = [41.3111, 69.2797];
+      let activeProvider = "osm";
+      let leafletMap = null;
+      let drawnItems = null;
+      let yandexMap = null;
+      let yandexPolygon = null;
+      let syncing = false;
+
+      function setStatus(message) {
+        if (status) {
+          status.textContent = message || "";
+        }
       }
 
-      map.on(L.Draw.Event.CREATED, function (event) {
-        drawnItems.clearLayers();
-        const layer = event.layer;
-        drawnItems.addLayer(layer);
-        updatePolygonInput(layer);
-      });
+      function readPolygon() {
+        try {
+          const value = JSON.parse(polygonInput.value || "[]");
+          return Array.isArray(value) ? value : [];
+        } catch (error) {
+          return [];
+        }
+      }
 
-      map.on(L.Draw.Event.EDITED, function (event) {
-        event.layers.eachLayer(function (layer) {
-          updatePolygonInput(layer);
+      function savePolygon(points) {
+        polygonInput.value = points && points.length ? JSON.stringify(points) : "";
+      }
+
+      function updateLeafletFromInput() {
+        if (!leafletMap || !drawnItems || syncing) {
+          return;
+        }
+        const points = readPolygon();
+        drawnItems.clearLayers();
+        if (points.length) {
+          const polygon = L.polygon(points);
+          drawnItems.addLayer(polygon);
+          leafletMap.fitBounds(polygon.getBounds());
+        }
+      }
+
+      function updateYandexFromInput() {
+        if (!yandexMap || !yandexPolygon || syncing) {
+          return;
+        }
+        const points = readPolygon();
+        yandexPolygon.geometry.setCoordinates(points.length ? [points] : []);
+        if (points.length) {
+          const bounds = yandexPolygon.geometry.getBounds();
+          if (bounds) {
+            yandexMap.setBounds(bounds, { checkZoomRange: true, zoomMargin: 24 });
+          }
+          yandexPolygon.editor.stopDrawing();
+          yandexPolygon.editor.startEditing();
+        } else if (activeProvider === "yandex") {
+          yandexPolygon.editor.startDrawing();
+        }
+      }
+
+      function syncFromLeaflet(layer) {
+        if (syncing) {
+          return;
+        }
+        syncing = true;
+        const points = layer.getLatLngs()[0].map(pt => [pt.lat, pt.lng]);
+        savePolygon(points);
+        syncing = false;
+        updateYandexFromInput();
+      }
+
+      function syncFromYandex() {
+        if (syncing || !yandexPolygon) {
+          return;
+        }
+        syncing = true;
+        const coordinates = yandexPolygon.geometry.getCoordinates();
+        savePolygon((coordinates && coordinates[0]) || []);
+        syncing = false;
+        updateLeafletFromInput();
+      }
+
+      function initLeaflet() {
+        if (leafletMap) {
+          return;
+        }
+        if (!window.L) {
+          setStatus("OpenStreetMap не загрузился. Проверьте доступ к CDN (unpkg/cdnjs).");
+          return;
+        }
+
+        leafletMap = L.map("map-osm").setView(defaultCenter, 12);
+        L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
+          maxZoom: 19,
+          attribution: '&copy; OpenStreetMap contributors'
+        }).addTo(leafletMap);
+
+        drawnItems = new L.FeatureGroup();
+        leafletMap.addLayer(drawnItems);
+
+        if (!L.Control || !L.Control.Draw) {
+          setStatus("Инструменты рисования не загрузились. Проверьте доступ к Leaflet.draw.");
+          return;
+        }
+
+        const drawControl = new L.Control.Draw({
+          draw: {
+            polygon: true,
+            marker: false,
+            polyline: false,
+            rectangle: false,
+            circle: false,
+            circlemarker: false
+          },
+          edit: {
+            featureGroup: drawnItems
+          }
+        });
+        leafletMap.addControl(drawControl);
+
+        leafletMap.on(L.Draw.Event.CREATED, function (event) {
+          drawnItems.clearLayers();
+          const layer = event.layer;
+          drawnItems.addLayer(layer);
+          syncFromLeaflet(layer);
+        });
+
+        leafletMap.on(L.Draw.Event.EDITED, function (event) {
+          event.layers.eachLayer(syncFromLeaflet);
+        });
+
+        leafletMap.on(L.Draw.Event.DELETED, function () {
+          savePolygon([]);
+          updateYandexFromInput();
+        });
+
+        updateLeafletFromInput();
+      }
+
+      function initYandex() {
+        if (yandexMap) {
+          return;
+        }
+        if (window.__yandexMapsFailed || !window.ymaps) {
+          setStatus("Яндекс.Карты не загрузились. Проверьте YANDEX_API_KEY и доступ к api-maps.yandex.ru.");
+          return;
+        }
+
+        ymaps.ready(function () {
+          if (yandexMap) {
+            return;
+          }
+          yandexMap = new ymaps.Map("map-yandex", {
+            center: defaultCenter,
+            zoom: 12,
+            controls: ["zoomControl", "typeSelector"]
+          });
+
+          yandexPolygon = new ymaps.Polygon([], {}, {
+            editorDrawingCursor: "crosshair",
+            fillColor: "#2f6fed33",
+            strokeColor: "#2f6fed",
+            strokeWidth: 4,
+            opacity: 0.9
+          });
+          yandexMap.geoObjects.add(yandexPolygon);
+          yandexPolygon.geometry.events.add("change", syncFromYandex);
+          updateYandexFromInput();
+        });
+      }
+
+      function refreshActiveMap() {
+        const delays = [50, 250, 600];
+        if (activeProvider === "osm" && leafletMap) {
+          delays.forEach(function (delay) {
+            setTimeout(function () {
+              leafletMap.invalidateSize();
+            }, delay);
+          });
+        }
+        if (activeProvider === "yandex" && yandexMap) {
+          delays.forEach(function (delay) {
+            setTimeout(function () {
+              yandexMap.container.fitToViewport();
+            }, delay);
+          });
+        }
+      }
+
+      function switchProvider(provider) {
+        activeProvider = provider;
+        osmContainer.classList.toggle("hidden", provider !== "osm");
+        yandexContainer.classList.toggle("hidden", provider !== "yandex");
+        providerButtons.forEach(function (button) {
+          button.classList.toggle("map-active", button.dataset.mapProvider === provider);
+        });
+        if (provider === "yandex") {
+          initYandex();
+        } else {
+          initLeaflet();
+        }
+        refreshActiveMap();
+      }
+
+      providerButtons.forEach(function (button) {
+        button.addEventListener("click", function () {
+          switchProvider(button.dataset.mapProvider);
         });
       });
 
-      map.on(L.Draw.Event.DELETED, function () {
-        polygonInput.value = "";
+      clearButton.addEventListener("click", function () {
+        savePolygon([]);
+        updateLeafletFromInput();
+        updateYandexFromInput();
+      });
+
+      fullscreenButton.addEventListener("click", function () {
+        if (document.fullscreenElement) {
+          document.exitFullscreen();
+        } else {
+          mapShell.requestFullscreen();
+        }
+      });
+
+      document.addEventListener("fullscreenchange", function () {
+        fullscreenButton.textContent = document.fullscreenElement ? "Свернуть карту" : "На весь экран";
+        refreshActiveMap();
       });
 
       {% if zone %}
-        const existing = {{ zone.polygon|safe }};
-        if (existing && existing.length) {
-          const poly = L.polygon(existing);
-          drawnItems.addLayer(poly);
-          map.fitBounds(poly.getBounds());
-          polygonInput.value = JSON.stringify(existing);
-        }
+        savePolygon({{ zone.polygon|safe }});
       {% endif %}
+
+      initLeaflet();
     })();
   </script>
 {% endblock %}
