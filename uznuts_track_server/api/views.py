@@ -10,7 +10,7 @@ from django.views.decorators.csrf import csrf_exempt
 
 from .forms import PositionForm, ReportForm, ZoneForm
 from .models import Employee, LocationReport, Position, Zone
-from .services import build_daily_employee_zone_report, build_zone_report, load_route_segments
+from .services import ReportResult, build_daily_employee_zone_report, load_route_segments
 
 
 def _parse_float(value, field_name):
@@ -256,8 +256,12 @@ def report_view(request):
             zone = form.cleaned_data["zone"]
             start_dt = form.cleaned_data["start_datetime"]
             end_dt = form.cleaned_data["end_datetime"]
-            result = build_zone_report(zone, start_dt, end_dt, employee=employee)
             daily_report = build_daily_employee_zone_report(zone, start_dt, end_dt, employee)
+            result = ReportResult(
+                accounted_seconds=sum(day.accounted_seconds for day in daily_report),
+                in_zone_seconds=sum(day.in_zone_seconds for day in daily_report),
+                out_zone_seconds=sum(day.out_zone_seconds for day in daily_report),
+            )
             in_segments, out_segments, all_points = load_route_segments(zone, start_dt, end_dt, employee=employee)
             summary = {
                 "accounted_hours": result.accounted_seconds / 3600,

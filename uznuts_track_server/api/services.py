@@ -163,21 +163,14 @@ def build_daily_employee_zone_report(
     current_day = start_dt.date()
     end_day = end_dt.date()
     while current_day <= end_day:
-        totals_by_day[current_day] = {"accounted": 0.0, "in_zone": 0.0}
+        day_start = max(start_dt, datetime.combine(current_day, time.min, tzinfo=timezone.utc))
+        day_end = min(end_dt, datetime.combine(current_day, time.max, tzinfo=timezone.utc))
+        day_result = build_zone_report(zone, day_start, day_end, employee=employee)
+        totals_by_day[current_day] = {
+            "accounted": day_result.accounted_seconds,
+            "in_zone": day_result.in_zone_seconds,
+        }
         current_day += timedelta(days=1)
-
-    intervals = _build_accounted_intervals(zone, start_dt, end_dt, employee=employee)
-    for interval_start, interval_end, in_zone_flag in intervals:
-        current_start = interval_start
-        while current_start < interval_end:
-            next_midnight = datetime.combine(current_start.date() + timedelta(days=1), time.min, tzinfo=timezone.utc)
-            current_end = min(interval_end, next_midnight)
-            seconds = (current_end - current_start).total_seconds()
-            day_totals = totals_by_day[current_start.date()]
-            day_totals["accounted"] += seconds
-            if in_zone_flag:
-                day_totals["in_zone"] += seconds
-            current_start = current_end
 
     return [
         DailyReportResult(
